@@ -12,6 +12,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--monitor', default='Any', help='Wayland output name, e.g. DP-3')
     parser.add_argument('--autostart', action='store_true')
+    parser.add_argument('--combined', action='store_true', help='Launch native Discord and overlay together')
+    parser.add_argument('--move-hotkey', action='store_true', help='Register Shift+~ placement shortcut on KDE Wayland')
     args = parser.parse_args()
     subprocess.run(['flatpak', 'info', APP], check=True, stdout=subprocess.DEVNULL)
     source = Path(__file__).resolve().parent
@@ -21,6 +23,8 @@ def main():
     if target.exists():
         shutil.copy2(target, target.with_suffix('.py.backup'))
     shutil.copy2(source / 'activity_overlay.py', target)
+    for filename, installed in [('launch_discord.py', 'launch-discord.py'), ('move_overlay.py', 'move-overlay.py')]:
+        shutil.copy2(source / filename, target.parent / installed)
     config = root / 'config/discover_overlay/config.ini'
     config.parent.mkdir(parents=True, exist_ok=True)
     current = configparser.ConfigParser(interpolation=None)
@@ -48,7 +52,32 @@ def main():
         autostart = Path.home() / '.config/autostart'
         autostart.mkdir(parents=True, exist_ok=True)
         (autostart / 'discover-overlay.desktop').write_text(desktop)
-    print('Installed. Quit an existing Discover Overlay instance, then launch Discord Activity Overlay.')
+    if args.combined:
+        combined_command = f'/usr/bin/python3 "{target.parent / "launch-discord.py"}" %U'
+        combined = ('[Desktop Entry]\nType=Application\nName=Discord + Activity Overlay\n'
+                    f'Exec={combined_command}\nIcon=discord\nTerminal=false\n'
+                    'Categories=Network;InstantMessaging;\nStartupWMClass=discord\n')
+        (applications / 'discord-activity-overlay.desktop').write_text(combined)
+        if args.autostart:
+            # Replace existing user startup entries to prevent duplicate sessions.
+            for filename in ('discord.desktop', 'com.discordapp.Discord.desktop', 'discover-overlay.desktop'):
+                old = autostart / filename
+                if old.exists():
+                    shutil.copy2(old, old.with_suffix('.desktop.backup'))
+                    old.write_text('[Desktop Entry]\nType=Application\nName=Previous Discord Startup\nHidden=true\n')
+            (autostart / 'discord-activity-overlay.desktop').write_text(combined)
+    if args.move_hotkey:
+        move_command = f'/usr/bin/flatpak run --command=python {APP} "{target.parent / "move-overlay.py"}"'
+        (applications / 'discord-overlay-move.desktop').write_text(
+            '[Desktop Entry]\nType=Application\nName=Move Discord Overlay\n'
+            f'Exec={move_command}\nIcon=transform-move\nTerminal=false\nNoDisplay=true\n'
+            'X-KDE-Shortcuts=Shift+`;~;Shift+~;\n')
+        builder = shutil.which('kbuildsycoca6')
+        if builder:
+            subprocess.run([builder, '--noincremental'], check=True)
+        else:
+            print('KDE 6 was not detected; assign the Move Discord Overlay launcher manually in desktop shortcuts.')
+    print('Installed. Quit an existing overlay instance before launching the new menu entry.')
     print('Your existing Discord authorization remains local and is preserved.')
 
 if __name__ == '__main__':
