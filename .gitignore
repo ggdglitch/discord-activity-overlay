@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+config.ini
+*.backup
+*.rpc
+output.txt
+.env*
